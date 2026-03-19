@@ -290,7 +290,9 @@ def evaluate(args, model, tokenizer, prefix=""):
 
 
 def load_and_cache_examples(args, task, tokenizer, evaluate=False):
-    if args.local_rank not in [-1, 0]:
+    # Barriers only needed during training so all ranks share the same cache.
+    # During evaluation only rank 0 runs, so skip barriers to avoid hanging.
+    if not evaluate and args.local_rank not in [-1, 0]:
         torch.distributed.barrier()
 
     processor = processors[task]()
@@ -325,7 +327,7 @@ def load_and_cache_examples(args, task, tokenizer, evaluate=False):
             logger.info("Saving features into cached file %s", cached_features_file)
             torch.save(features, cached_features_file)
 
-    if args.local_rank == 0:
+    if not evaluate and args.local_rank == 0:
         torch.distributed.barrier()
 
     all_input_ids  = torch.tensor([f.input_ids   for f in features], dtype=torch.long)
