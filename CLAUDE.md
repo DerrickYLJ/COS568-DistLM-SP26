@@ -108,12 +108,40 @@ Key parameters:
 - `--per_device_train_batch_size 16` × 4 workers = 64 total (same as Task 1)
 - `--num_train_epochs 1` (required for Tasks 2/3 per README)
 - All 4 nodes must start within ~30s of each other or init times out
-- Use `10.10.1.*` IPs only (experimental network) — not public IPs
+- On Clemson CloudLab (no 10.10.1.* interface): use the public IP from `ifconfig` (e.g. `128.110.219.149`)
 
 Implementation in `task2a/run_glue.py`:
 - `sync_gradients_gather_scatter()` — rank 0 gathers all `.grad` tensors, averages them, scatters mean back to every rank
 - `DistributedSampler` replaces `RandomSampler` so each rank sees a disjoint data shard
 - Evaluation runs on rank 0 only
+
+### Task 2b — Distributed all_reduce on CloudLab (4 nodes)
+
+Same 4-node setup as Task 2a. Run from `task2b/` dir using a different port:
+
+```bash
+# node-0 (rank 0) — master
+export GLUE_DIR=$HOME/glue_data TASK_NAME=RTE
+cd ~/COS568-DistLM-SP26/task2b
+tmux new -s task2b
+python3 run_glue.py \
+  --model_type bert --model_name_or_path bert-base-cased \
+  --task_name $TASK_NAME --do_train --do_eval \
+  --data_dir $GLUE_DIR/$TASK_NAME \
+  --max_seq_length 128 --per_device_train_batch_size 16 \
+  --learning_rate 2e-5 --num_train_epochs 1 \
+  --output_dir /tmp/${TASK_NAME}_2b/ --overwrite_output_dir \
+  --master_ip <MASTER_IP> --master_port 9877 \
+  --world_size 4 --local_rank 0 2>&1 | tee task2b_rank0.log
+
+# node-1 (rank 1): same command with --local_rank 1
+# node-2 (rank 2): same command with --local_rank 2
+# node-3 (rank 3): same command with --local_rank 3
+```
+
+Implementation in `task2b/run_glue.py`:
+- `sync_gradients_all_reduce()` — in-place SUM all_reduce on every `.grad` tensor, then divides by `world_size`
+- Simpler and more scalable than gather/scatter; loss values should be identical to Task 2a
 
 ## Code Architecture
 
